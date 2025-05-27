@@ -3,6 +3,9 @@ import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayList;
 import java.awt.geom.*;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.List;
 
 public class CircuitDesigner extends JFrame {
     private CircuitEditor editor;
@@ -154,6 +157,17 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
     private CircuitElement selectedElement;
     private CircuitElement tempWire;
     private boolean  deleteMode = false; // 삭제 모드 플래그 추가
+    private Map<Point2D, CircuitNode> nodes = new HashMap<>();
+    
+    private void updateNodes(CircuitElement element) {
+        // 요소의 시작점과 끝점을 노드로 등록
+        addToNode(element.start, element);
+        addToNode(element.end, element);
+    }
+    
+    private void addToNode(Point2D pos, CircuitElement elem) {
+        nodes.computeIfAbsent(pos, k -> new CircuitNode()).connectedElements.add(elem);
+    }
 
     public CircuitEditor() {
         setBackground(Color.WHITE);
@@ -396,20 +410,44 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
         int y = ((int)p.getY() / 20) * 20;
         return new Point2D.Double(x, y);
     }
-
     @Override public void mouseMoved(MouseEvent e) {}
     @Override public void mouseEntered(MouseEvent e) {}
     @Override public void mouseExited(MouseEvent e) {}
-}
+    private VoltageSource voltageSource = new VoltageSource(new Point2D.Double(50, 300));
+    class VoltageSource {
+        Point2D position;
+        double voltage;
 
+        public VoltageSource(Point2D position) {
+            this.position = position;
+            this.voltage = 12; // Default voltage value
+        }
+    }
+}
 class CircuitAnalysisResult {
     double R;
     double L;
     double C;
     double tau;
     String circuitType;
-    ArrayList<Double> responseData;
-
+    List<Double> responseData;
+    Map<Point2D, ParallelGroup> parallelGroups = new HashMap<>();
+    
+    public void detectParallels(Map<Point2D, CircuitNode> nodes) {
+        nodes.values().forEach(node -> {
+            if(node.connectedElements.size() > 1) {
+                ParallelGroup group = new ParallelGroup();
+                node.connectedElements.forEach(elem -> {
+                    switch(elem.type) {
+                        case RESISTOR: group.resistors.add(elem); break;
+                        case INDUCTOR: group.inductors.add(elem); break;
+                        case CAPACITOR: group.capacitors.add(elem); break;
+                    }
+                });
+                parallelGroups.put(node.position, group);
+            }
+        });
+    }
     public CircuitAnalysisResult(double R, double L, double C, double tau, String type) {
         this.R = R;
         this.L = L;
@@ -429,4 +467,32 @@ class CircuitAnalysisResult {
         }
         return data;
     }
+    public double calculateEquivalentResistance(List<CircuitElement> resistors) {
+        return 1.0 / resistors.stream()
+            .mapToDouble(e -> 1/e.gunny)
+            .sum();
+    }
+    
+    public double calculateEquivalentInductance(List<CircuitElement> inductors) {
+        return 1.0 / inductors.stream()
+            .mapToDouble(e -> 1/e.gunny)
+            .sum();
+    }
+    
+    public double calculateEquivalentCapacitance(List<CircuitElement> capacitors) {
+        return capacitors.stream()
+            .mapToDouble(e -> e.gunny)
+            .sum();
+    }
+}
+//노드 관리 시스템
+class CircuitNode {
+    Point2D position;
+    ArrayList<CircuitElement> connectedElements = new ArrayList<>();
+}
+//병렬 연결 감지 로직
+class ParallelGroup {
+    ArrayList<CircuitElement> resistors = new ArrayList<>();
+    ArrayList<CircuitElement> inductors = new ArrayList<>();
+    ArrayList<CircuitElement> capacitors = new ArrayList<>();
 }
