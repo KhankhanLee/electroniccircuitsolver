@@ -10,7 +10,7 @@ import java.util.List;
 public class CircuitDesigner extends JFrame {
     private CircuitEditor editor;
     private JPanel controlPanel;
-    private JButton resistorBtn, inductorBtn, capacitorBtn, wireBtn, deleteBtn, solveBtn;
+    private JButton resistorBtn, inductorBtn, capacitorBtn, wireBtn,OP_AMPBtn, deleteBtn, solveBtn;
     private JTextField voltageField;
     private JTextArea resultArea;
 
@@ -29,6 +29,7 @@ public class CircuitDesigner extends JFrame {
         inductorBtn = new JButton("인덕터 추가");
         capacitorBtn = new JButton("커패시터 추가");
         wireBtn = new JButton("전선 추가");
+        OP_AMPBtn = new JButton("OPAMP 추가");
         deleteBtn = new JButton("삭제");
         solveBtn = new JButton("회로 해석");
         voltageField = new JTextField("12", 5);
@@ -37,6 +38,7 @@ public class CircuitDesigner extends JFrame {
         inductorBtn.addActionListener(e -> editor.setTool(CircuitTool.INDUCTOR));
         capacitorBtn.addActionListener(e -> editor.setTool(CircuitTool.CAPACITOR));
         wireBtn.addActionListener(e -> editor.setTool(CircuitTool.WIRE));
+        OP_AMPBtn.addActionListener(e -> editor.setTool(CircuitTool.OP_AMP));
         deleteBtn.addActionListener(e -> editor.deleteSelected());
         solveBtn.addActionListener(e -> analyzeCircuit());
 
@@ -48,6 +50,7 @@ public class CircuitDesigner extends JFrame {
         controlPanel.add(resistorBtn);
         controlPanel.add(inductorBtn);
         controlPanel.add(capacitorBtn);
+        controlPanel.add(OP_AMPBtn);
         controlPanel.add(wireBtn);
         controlPanel.add(deleteBtn);
         controlPanel.add(solveBtn);
@@ -103,15 +106,18 @@ public class CircuitDesigner extends JFrame {
     }
 }
 
-enum CircuitTool { RESISTOR, INDUCTOR, CAPACITOR, WIRE }
-enum ComponentType { RESISTOR, INDUCTOR, CAPACITOR, WIRE }
+enum CircuitTool { RESISTOR, INDUCTOR, CAPACITOR, WIRE, OP_AMP }
+enum ComponentType { RESISTOR, INDUCTOR, CAPACITOR, WIRE, OP_AMP }
 
 class CircuitElement {
     ComponentType type;
     Rectangle2D shape;
     double gunny; // gunny = 저항(resistance), 인덕턴스, 커패시턴스
     Point2D start, end;
-
+    // OP Amp 전용 노드
+    Object nonInvertingInputNode;
+    Object invertingInputNode;
+    Object outputNode;
     public CircuitElement(ComponentType type, Point2D pos) {
         this.type = type;
         if(type == ComponentType.RESISTOR) {
@@ -183,29 +189,35 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
     }
 
     public void deleteSelected() {
-        if(selectedElement != null) {
-            elements.remove(selectedElement);
-            selectedElement = null;
-            repaint();
-        }
+    if(selectedElement != null) {
+        elements.remove(selectedElement);
+        selectedElement = null;
+        repaint();
+    } else {
+        // 선택된 요소가 없으면 삭제 모드 활성화 후 클릭으로 삭제 처리
+        deleteMode = true;
     }
-
+}
     public CircuitAnalysisResult analyzeCircuit(double voltage) {
-        // RL/RC 1계 회로만 해석 (저항+인덕터 또는 저항+커패시터만 허용)
         boolean hasInductor = elements.stream().anyMatch(e -> e.type == ComponentType.INDUCTOR);
         boolean hasCapacitor = elements.stream().anyMatch(e -> e.type == ComponentType.CAPACITOR);
+        boolean hasOpAmp = elements.stream().anyMatch(e -> e.type == ComponentType.OP_AMP);
 
         double R = elements.stream()
-            .filter(e -> e.type == ComponentType.RESISTOR)
-            .mapToDouble(e -> e.gunny)
-            .sum();
-
+        .filter(e -> e.type == ComponentType.RESISTOR)
+        .mapToDouble(e -> e.gunny)
+        .sum();
+        // RL, RC 해석
         if(hasInductor && !hasCapacitor) {
             double L = elements.stream()
                 .filter(e -> e.type == ComponentType.INDUCTOR)
                 .mapToDouble(e -> e.gunny)
                 .sum();
             double tau = L / R;
+            // OP Amp 해석 
+            if(hasOpAmp) {
+                analyzeOpAmps();
+            }
             return new CircuitAnalysisResult(R, L, 0, tau, "RL");
         } else if(hasCapacitor && !hasInductor) {
             double C = elements.stream()
@@ -213,10 +225,44 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
                 .mapToDouble(e -> e.gunny)
                 .sum();
             double tau = R * C;
+            if(hasOpAmp) {
+                analyzeOpAmps();
+            }
             return new CircuitAnalysisResult(R, 0, C, tau, "RC");
         } else {
+            if(hasOpAmp) {
+                analyzeOpAmps();
+            }
             return new CircuitAnalysisResult(R, 0, 0, 0, null);
         }
+    }
+    // 노드 전압을 저장하는 맵 (노드 ID 또는 객체를 키로 사용)
+    private Map<Object, Double> nodeVoltages = new HashMap<>();
+    // 노드 전압 읽기
+    private double getNodeVoltage(Object node) {
+        return nodeVoltages.getOrDefault(node, 0.0);
+    }
+    // 노드 전압 쓰기
+    private void setNodeVoltage(Object node, double voltage) {
+        nodeVoltages.put(node, voltage);
+    }
+    private void analyzeOpAmps() {
+        for(CircuitElement e : elements) {
+            if(e.type == ComponentType.OP_AMP) {
+                analyzeOpAmp(e);
+            }
+        }
+    }
+    private void analyzeOpAmp(CircuitElement opAmp) {
+        // opAmp.nonInvertingInputNode, opAmp.invertingInputNode, opAmp.outputNode 가 있다고 가정
+        double vPlus = getNodeVoltage(opAmp.nonInvertingInputNode);
+        double vMinus = getNodeVoltage(opAmp.invertingInputNode);
+
+        double gain = 1e5;
+        double vOut = gain * (vPlus - vMinus);
+
+        setNodeVoltage(opAmp.outputNode, vOut);
+        // 입력 전류 0 처리 등 추가 회로 방정식 반영 필요
     }
 
     @Override
@@ -248,6 +294,8 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
                 g2.drawString(e.gunny + "F", (int)e.shape.getCenterX()-15, (int)e.shape.getY()-5);
             } else if(e.type == ComponentType.WIRE) {
                 g2.draw(new Line2D.Double(e.start, e.end));
+            } else if(e.type == ComponentType.OP_AMP) {
+                drawOpAmp(g2, e.shape);
             }
         }
 
@@ -288,17 +336,33 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
         g2.drawLine((int)rect.getX(), y+10, x1, y+10);
         g2.drawLine(x2, y+10, (int)rect.getMaxX(), y+10);
     }
+    private void drawOpAmp(Graphics2D g2, Rectangle2D rect) {
+        Path2D path = new Path2D.Double();
+        path.moveTo(rect.getX(), rect.getY());
+        path.lineTo(rect.getMaxX(), rect.getCenterY());
+        path.lineTo(rect.getX(), rect.getMaxY());
+        path.closePath();
+        g2.setColor(Color.BLACK);
+        g2.draw(path);
+        // OP Amp 레이블
+        g2.drawString("OP Amp", (int)rect.getCenterX() - 20, (int)rect.getCenterY());
+    }
     @Override
     public void mouseClicked(MouseEvent e) {
         Point2D pos = snapToGrid(e.getPoint());
-
-    if (deleteMode) {
-        // 역순 순회 (최상위 요소 우선)
+        // 삭제 모드 처리
+        if (deleteMode) {
         for (int i = elements.size() - 1; i >= 0; i--) {
             CircuitElement elem = elements.get(i);
             boolean hit = false;
-            if(elem.shape != null && elem.shape.contains(pos)) hit = true;
-            if(elem.type == ComponentType.WIRE && elem.isNearWire(pos)) hit = true;
+            //전선이 아닌 경우: shape이 존재하고 클릭 좌표 주변과 교차하면 hit
+            if(elem.shape != null && elem.shape.intersects(pos.getX() - 3, pos.getY() - 3, 6, 6)) {
+                hit = true;
+            }
+            //전선인 경우: shape 대신 직접 거리 기반으로 검사
+            if(elem.type == ComponentType.WIRE && elem.isNearWire(e.getPoint())) {
+                hit = true;
+            }
             if(hit) {
                 elements.remove(i);
                 repaint();
@@ -307,41 +371,45 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
             }
         }
         deleteMode = false;
-    }
-    // 1. 더블클릭 처리
-        if(e.getClickCount() == 2) {
-            Point2D pos2 = snapToGrid(e.getPoint());
+        }
+        //더블클릭: gunny 편집
+        if (e.getClickCount() == 2) {
+            System.out.println("더블클릭 감지 at: " + pos);
             for(CircuitElement elem : elements) {
-                if((elem.type == ComponentType.RESISTOR || 
-                    elem.type == ComponentType.INDUCTOR || 
-                    elem.type == ComponentType.CAPACITOR) 
-                    && elem.shape.contains(pos2)) {
+                if((elem.type == ComponentType.RESISTOR ||
+                    elem.type == ComponentType.INDUCTOR ||
+                    elem.type == ComponentType.CAPACITOR)
+                    && elem.shape != null
+                    && elem.shape.intersects(pos.getX() - 3, pos.getY() - 3, 6, 6)) {
                     editGunny(elem);
-                    return; //더블클릭 처리 후 즉시 종료 
+                    return;
                 }
             }
         }
-        // 2. 더블클릭이 아닌 경우에만 컴포넌트 추가
+        //일반 클릭 처리
         else {
-            if(currentTool == CircuitTool.RESISTOR) {
-                Point2D snapped = snapToGrid(e.getPoint());
-                elements.add(new CircuitElement(ComponentType.RESISTOR, snapped));
-                repaint();
-            } 
-            else if(currentTool == CircuitTool.INDUCTOR) {
-                // 인덕터 추가 코드
-                Point2D snapped = snapToGrid(e.getPoint());
-                elements.add(new CircuitElement(ComponentType.INDUCTOR, snapped));
-                repaint();
-            } 
-            else if(currentTool == CircuitTool.CAPACITOR) {
-            // 커패시터 추가 코드
-                Point2D snapped = snapToGrid(e.getPoint());
-                elements.add(new CircuitElement(ComponentType.CAPACITOR, snapped));
-                repaint();
+            Point2D snapped = snapToGrid(e.getPoint());
+            switch(currentTool) {
+                case RESISTOR:
+                    elements.add(new CircuitElement(ComponentType.RESISTOR, snapped));
+                    break;
+                case INDUCTOR:
+                    elements.add(new CircuitElement(ComponentType.INDUCTOR, snapped));
+                    break;
+                case CAPACITOR:
+                    elements.add(new CircuitElement(ComponentType.CAPACITOR, snapped));
+                    break;
+                case OP_AMP:
+                    CircuitElement opAmp = new CircuitElement(ComponentType.OP_AMP, snapped);
+                    opAmp.shape = new Rectangle2D.Double(snapped.getX(), snapped.getY(), 60, 40);
+                    elements.add(opAmp);
+                    break;
+                default:
+                    break;
             }
+            repaint();
         }
-    }   
+    }
     private void editGunny(CircuitElement elem) {
         String msg = "값 입력:";
         if(elem.type == ComponentType.RESISTOR) msg = "저항값(Ω) 입력:";
@@ -358,11 +426,9 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
             JOptionPane.showMessageDialog(this, "올바른 숫자를 입력하세요!");
         }
     }
-
     @Override
     public void mousePressed(MouseEvent e) {
         Point2D pos = snapToGrid(e.getPoint());
-
         if(currentTool == CircuitTool.WIRE) {
             tempWire = new CircuitElement(ComponentType.WIRE, pos);
             tempWire.start = pos;
@@ -377,7 +443,6 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
         }
         repaint();
     }
-
     @Override
     public void mouseDragged(MouseEvent e) {
         if(currentTool == CircuitTool.WIRE && tempWire != null) {
@@ -488,7 +553,7 @@ class CircuitAnalysisResult {
 //노드 관리 시스템
 class CircuitNode {
     Point2D position;
-    ArrayList<CircuitElement> connectedElements = new ArrayList<>();
+    List<CircuitElement> connectedElements = new ArrayList<>();
 }
 //병렬 연결 감지 로직
 class ParallelGroup {
