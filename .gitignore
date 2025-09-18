@@ -1,0 +1,24 @@
+# Build outputs
+*.class
+*.jar
+*.war
+*.ear
+
+# IDE/Editor
+.idea/
+*.iml
+.vscode/
+
+# Common build dirs
+bin/
+out/
+target/
+build/
+
+# OS files
+.DS_Store
+
+# Logs
+*.log
+
+
