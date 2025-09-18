@@ -34,6 +34,16 @@ class CircuitElement {
             this.outputNode = new Point2D.Double(pos.getX() + 60, pos.getY() + 20);
             this.start = pos;
             this.end = new Point2D.Double(pos.getX() + 60, pos.getY() + 20);
+        } else if(type == ComponentType.VOLTAGE_SOURCE) {
+            this.shape = new Rectangle2D.Double(pos.getX(), pos.getY(), 40, 40);
+            this.gunny = 12.0; // 기본 전압값 12V
+            this.start = pos;
+            this.end = new Point2D.Double(pos.getX() + 40, pos.getY() + 20);
+        } else if(type == ComponentType.CURRENT_SOURCE) {
+            this.shape = new Rectangle2D.Double(pos.getX(), pos.getY(), 40, 40);
+            this.gunny = 1.0; // 기본 전류값 1A
+            this.start = pos;
+            this.end = new Point2D.Double(pos.getX() + 40, pos.getY() + 20);
         } else {
             this.start = pos;
             this.end = pos;

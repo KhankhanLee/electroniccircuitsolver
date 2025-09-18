@@ -8,7 +8,7 @@ import java.util.Map;
 public class CircuitDesigner extends JFrame {
     private CircuitEditor editor;
     private JPanel controlPanel;
-    private JButton resistorBtn, inductorBtn, capacitorBtn, wireBtn,OP_AMPBtn, deleteBtn, solveBtn;
+    private JButton resistorBtn, inductorBtn, capacitorBtn, wireBtn,OP_AMPBtn, voltageSourceBtn, deleteBtn, solveBtn;
     private JTextField voltageField;
     private JTextArea resultArea;
 
@@ -28,6 +28,7 @@ public class CircuitDesigner extends JFrame {
         capacitorBtn = new JButton("커패시터 추가");
         wireBtn = new JButton("전선 추가");
         OP_AMPBtn = new JButton("OPAMP 추가");
+        voltageSourceBtn = new JButton("전압원 추가");
         deleteBtn = new JButton("삭제");
         solveBtn = new JButton("회로 해석");
         voltageField = new JTextField("12", 5);
@@ -37,6 +38,7 @@ public class CircuitDesigner extends JFrame {
         capacitorBtn.addActionListener(e -> editor.setTool(CircuitTool.CAPACITOR));
         wireBtn.addActionListener(e -> editor.setTool(CircuitTool.WIRE));
         OP_AMPBtn.addActionListener(e -> editor.setTool(CircuitTool.OP_AMP));
+        voltageSourceBtn.addActionListener(e -> editor.setTool(CircuitTool.VOLTAGE_SOURCE));
         deleteBtn.addActionListener(e -> editor.deleteSelected());
         solveBtn.addActionListener(e -> analyzeCircuit());
 
@@ -49,6 +51,7 @@ public class CircuitDesigner extends JFrame {
         controlPanel.add(inductorBtn);
         controlPanel.add(capacitorBtn);
         controlPanel.add(OP_AMPBtn);
+        controlPanel.add(voltageSourceBtn);
         controlPanel.add(wireBtn);
         controlPanel.add(deleteBtn);
         controlPanel.add(solveBtn);
@@ -94,9 +97,23 @@ public class CircuitDesigner extends JFrame {
         } else {
             sb.append("회로 유형: ").append(result.circuitType).append("\n");
             sb.append(String.format("총 등가 저항: %.2f Ω\n", result.R));
-            if (result.circuitType.contains("RL"))
+            
+            // 전압원 정보 표시
+            boolean hasVoltageSource = editor.getElementsSnapshot().stream()
+                .anyMatch(e -> e.type == ComponentType.VOLTAGE_SOURCE);
+            if (hasVoltageSource) {
+                double sourceVoltage = editor.getElementsSnapshot().stream()
+                    .filter(e -> e.type == ComponentType.VOLTAGE_SOURCE)
+                    .mapToDouble(e -> e.gunny)
+                    .findFirst()
+                    .orElse(voltage);
+                sb.append(String.format("전압원 전압: %.1f V\n", sourceVoltage));
+            } else {
+                sb.append(String.format("입력 전압: %.1f V\n", voltage));
+            }
+            if (result.circuitType != null && result.circuitType.contains("RL"))
                 sb.append(String.format("총 등가 인덕턴스: %s H\n", formatValue(result.L)));
-            if (result.circuitType.contains("RC"))
+            if (result.circuitType != null && result.circuitType.contains("RC"))
                 sb.append(String.format("총 등가 커패시턴스: %s F\n", formatValue(result.C)));
 
             if ("RLC".equals(result.circuitType)) {
@@ -118,7 +135,7 @@ public class CircuitDesigner extends JFrame {
             }
         }
         // 병렬 탐지 결과 표시
-        Map<Point2D, ParallelGroup> parallelGroups = result.detectParallels(editor.getNodes());
+        Map<Point2D, ParallelGroup> parallelGroups = editor.computeParallelGroups();
         if (!parallelGroups.isEmpty()) {
             sb.append("\n[병렬 연결 감지 결과]\n");
             for (Map.Entry<Point2D, ParallelGroup> entry : parallelGroups.entrySet()) {

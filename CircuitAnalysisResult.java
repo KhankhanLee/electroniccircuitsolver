@@ -17,26 +17,7 @@ class CircuitAnalysisResult {
     double omega0;
     String dampingType;
     
-    public Map<Point2D, ParallelGroup> detectParallels(Map<Point2D, CircuitNode> nodes) {
-        parallelGroups.clear();
-        nodes.values().forEach(node -> {
-            if(node.connectedElements.size() > 1) {
-                ParallelGroup group = new ParallelGroup();
-                node.connectedElements.forEach(elem -> {
-                    switch(elem.type) {
-                        case RESISTOR: group.resistors.add(elem); break;
-                        case INDUCTOR: group.inductors.add(elem); break;
-                        case CAPACITOR: group.capacitors.add(elem); break;
-                        case WIRE: // WIRE는 병렬 그룹에 포함하지 않음
-                        case OP_AMP: // OP_AMP는 병렬 그룹에 포함하지 않음
-                        default: break;
-                    }
-                });
-                parallelGroups.put(node.position, group);
-            }
-        });
-        return parallelGroups;
-    }
+    // 병렬 검출은 CircuitEditor.computeParallelGroups()로 일원화
     
     public CircuitAnalysisResult(double R, double L, double C, double tau, String type) {
         this.R = R;

@@ -12,9 +12,10 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
     private CircuitElement selectedElement;
     private CircuitElement tempWire;
     private boolean  deleteMode = false;
-    private Map<Point2D, CircuitNode> nodes = new HashMap<>();
+    private Map<String, CircuitNode> nodes = new HashMap<>();
 
-    public Map<Point2D, CircuitNode> getNodes() { return nodes; }
+    public Map<String, CircuitNode> getNodes() { return nodes; }
+    public java.util.List<CircuitElement> getElementsSnapshot() { return new ArrayList<>(elements); }
 
     public CircuitEditor() {
         setBackground(Color.WHITE);
@@ -27,8 +28,10 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
 
     public void deleteSelected() {
         if(selectedElement != null) {
+            CircuitElement removed = selectedElement;
             elements.remove(selectedElement);
             selectedElement = null;
+            cleanupElement(removed);
             repaint();
         } else {
             deleteMode = true;
@@ -39,6 +42,17 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
         boolean hasInductor = elements.stream().anyMatch(e -> e.type == ComponentType.INDUCTOR);
         boolean hasCapacitor = elements.stream().anyMatch(e -> e.type == ComponentType.CAPACITOR);
         boolean hasOpAmp = elements.stream().anyMatch(e -> e.type == ComponentType.OP_AMP);
+        boolean hasVoltageSource = elements.stream().anyMatch(e -> e.type == ComponentType.VOLTAGE_SOURCE);
+
+        // 전압원이 있으면 전압원의 전압값 사용, 없으면 입력된 전압값 사용
+        double actualVoltage = voltage;
+        if (hasVoltageSource) {
+            actualVoltage = elements.stream()
+                .filter(e -> e.type == ComponentType.VOLTAGE_SOURCE)
+                .mapToDouble(e -> e.gunny)
+                .findFirst()
+                .orElse(voltage);
+        }
 
         double R = elements.stream().filter(e -> e.type == ComponentType.RESISTOR).mapToDouble(e -> e.gunny).sum();
 
@@ -111,6 +125,10 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
                 g2.draw(new Line2D.Double(e.start, e.end));
             } else if(e.type == ComponentType.OP_AMP) {
                 drawOpAmp(g2, e.shape);
+            } else if(e.type == ComponentType.VOLTAGE_SOURCE) {
+                drawVoltageSource(g2, e.shape, e.gunny);
+            } else if(e.type == ComponentType.CURRENT_SOURCE) {
+                drawCurrentSource(g2, e.shape, e.gunny);
             }
         }
 
@@ -159,6 +177,35 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
         g2.draw(path);
         g2.drawString("OP Amp", (int)rect.getCenterX() - 20, (int)rect.getCenterY());
     }
+    
+    private void drawVoltageSource(Graphics2D g2, Rectangle2D rect, double voltage) {
+        // 원 그리기
+        int centerX = (int)rect.getCenterX();
+        int centerY = (int)rect.getCenterY();
+        int radius = 15;
+        g2.drawOval(centerX - radius, centerY - radius, radius * 2, radius * 2);
+        
+        // +, - 기호 그리기
+        g2.drawString("+", centerX - 3, centerY - 5);
+        g2.drawString("-", centerX - 3, centerY + 8);
+        
+        // 전압값 표시
+        g2.drawString(String.format("%.1fV", voltage), (int)rect.getX() - 10, (int)rect.getY() - 5);
+    }
+
+    private void drawCurrentSource(Graphics2D g2, Rectangle2D rect, double current) {
+        // 원 그리기
+        int centerX = (int)rect.getCenterX();
+        int centerY = (int)rect.getCenterY();
+        int radius = 15;
+        g2.drawOval(centerX - radius, centerY - radius, radius * 2, radius * 2);
+
+        //화살표 그리기
+        g2.drawLine(centerX, centerY, centerX, centerY + 10);
+        
+        // 전류값 표시
+        g2.drawString(String.format("%.1fA", current), (int)rect.getX() - 10, (int)rect.getY() - 5);
+    }
 
     @Override
     public void mouseClicked(MouseEvent e) {
@@ -170,7 +217,8 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
                 if(elem.shape != null && elem.shape.intersects(pos.getX() - 3, pos.getY() - 3, 6, 6)) { hit = true; }
                 if(elem.type == ComponentType.WIRE && elem.isNearWire(e.getPoint())) { hit = true; }
                 if(hit) {
-                    elements.remove(i);
+                    CircuitElement removed = elements.remove(i);
+                    cleanupElement(removed);
                     repaint();
                     deleteMode = false;
                     return;
@@ -181,7 +229,7 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
 
         if (e.getClickCount() == 2) {
             for(CircuitElement elem : elements) {
-                if((elem.type == ComponentType.RESISTOR || elem.type == ComponentType.INDUCTOR || elem.type == ComponentType.CAPACITOR)
+                if((elem.type == ComponentType.RESISTOR || elem.type == ComponentType.INDUCTOR || elem.type == ComponentType.CAPACITOR || elem.type == ComponentType.VOLTAGE_SOURCE)
                     && elem.shape != null && elem.shape.intersects(pos.getX() - 3, pos.getY() - 3, 6, 6)) {
                     editGunny(elem);
                     return;
@@ -197,6 +245,9 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
                 case OP_AMP:
                     newElement = new CircuitElement(ComponentType.OP_AMP, snapped);
                     newElement.shape = new Rectangle2D.Double(snapped.getX(), snapped.getY(), 60, 40);
+                    break;
+                case VOLTAGE_SOURCE:
+                    newElement = new CircuitElement(ComponentType.VOLTAGE_SOURCE, snapped);
                     break;
                 default: break;
             }
@@ -215,6 +266,7 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
         if(elem.type == ComponentType.RESISTOR) msg = "저항값(Ω) 입력:";
         if(elem.type == ComponentType.INDUCTOR) msg = "인덕턴스(H) 입력:";
         if(elem.type == ComponentType.CAPACITOR) msg = "커패시턴스(F) 입력:";
+        if(elem.type == ComponentType.VOLTAGE_SOURCE) msg = "전압값(V) 입력:";
         String input = JOptionPane.showInputDialog(this, msg, elem.gunny);
         try {
             double newValue = Double.parseDouble(input);
@@ -226,6 +278,10 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
 
     @Override
     public void mousePressed(MouseEvent e) {
+        if (deleteMode) {
+            // 삭제 모드에서는 드로잉 로직 비활성화
+            return;
+        }
         Point2D pos = snapToGrid(e.getPoint());
         if(currentTool == CircuitTool.WIRE) {
             tempWire = new CircuitElement(ComponentType.WIRE, pos);
@@ -241,6 +297,7 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
 
     @Override
     public void mouseDragged(MouseEvent e) {
+        if (deleteMode) { return; }
         if(currentTool == CircuitTool.WIRE && tempWire != null) {
             tempWire.end = snapToGrid(e.getPoint());
             repaint();
@@ -254,6 +311,7 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
 
     @Override
     public void mouseReleased(MouseEvent e) {
+        if (deleteMode) { return; }
         if(currentTool == CircuitTool.WIRE && tempWire != null) {
             tempWire.end = snapToGrid(e.getPoint());
             elements.add(tempWire);
@@ -267,13 +325,64 @@ class CircuitEditor extends JPanel implements MouseListener, MouseMotionListener
         addToNode(element.start, element);
         addToNode(element.end, element);
     }
+    private String keyFor(Point2D pos) {
+        int x = ((int)pos.getX() / 20) * 20;
+        int y = ((int)pos.getY() / 20) * 20;
+        return x + "," + y;
+    }
     private void addToNode(Point2D pos, CircuitElement elem) {
-        CircuitNode node = nodes.computeIfAbsent(pos, k -> {
+        if (pos == null) return;
+        String key = keyFor(pos);
+        CircuitNode node = nodes.computeIfAbsent(key, k -> {
             CircuitNode newNode = new CircuitNode();
-            newNode.position = pos;
+            newNode.position = new Point2D.Double(((int)pos.getX() / 20) * 20, ((int)pos.getY() / 20) * 20);
             return newNode;
         });
         node.connectedElements.add(elem);
+    }
+    private void cleanupElement(CircuitElement elem) {
+        // 노드에서 연결 제거
+        for (java.util.Iterator<Map.Entry<String, CircuitNode>> it = nodes.entrySet().iterator(); it.hasNext();) {
+            Map.Entry<String, CircuitNode> entry = it.next();
+            CircuitNode node = entry.getValue();
+            node.connectedElements.removeIf(c -> c == elem);
+            if (node.connectedElements.isEmpty()) {
+                it.remove();
+            }
+        }
+    }
+
+    public Map<Point2D, ParallelGroup> computeParallelGroups() {
+        // 양단 노드 쌍을 키로 병렬 그룹 구성
+        Map<String, ParallelGroup> pairKeyToGroup = new HashMap<>();
+        for (CircuitElement e : elements) {
+            if (e.start == null || e.end == null) continue;
+            if (!(e.type == ComponentType.RESISTOR || e.type == ComponentType.INDUCTOR || e.type == ComponentType.CAPACITOR)) continue;
+            String a = keyFor(e.start);
+            String b = keyFor(e.end);
+            String pair = (a.compareTo(b) <= 0) ? a + "|" + b : b + "|" + a;
+            ParallelGroup g = pairKeyToGroup.computeIfAbsent(pair, k -> new ParallelGroup());
+            switch (e.type) {
+                case RESISTOR: g.resistors.add(e); break;
+                case INDUCTOR: g.inductors.add(e); break;
+                case CAPACITOR: g.capacitors.add(e); break;
+                default: break;
+            }
+        }
+        // 키를 좌표(중점)로 변환
+        Map<Point2D, ParallelGroup> out = new HashMap<>();
+        for (Map.Entry<String, ParallelGroup> entry : pairKeyToGroup.entrySet()) {
+            String[] parts = entry.getKey().split("\\|");
+            String[] a = parts[0].split(",");
+            String[] b = parts[1].split(",");
+            double ax = Double.parseDouble(a[0]);
+            double ay = Double.parseDouble(a[1]);
+            double bx = Double.parseDouble(b[0]);
+            double by = Double.parseDouble(b[1]);
+            Point2D mid = new Point2D.Double((ax + bx)/2.0, (ay + by)/2.0);
+            out.put(mid, entry.getValue());
+        }
+        return out;
     }
 
     private Point2D snapToGrid(Point2D p) {
